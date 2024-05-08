@@ -85,6 +85,7 @@ increments <- increments_readin %>%
 n_distinct(increments$Sample_ID)
 
 
+
 # QAQC Increment data -----------------------------------------------------
 #Histogram of increment counts
 ggplot()+geom_histogram(aes(increments$Inc_no))
@@ -670,6 +671,22 @@ p_growth_con_time<- ggplot(data=rep_model_data_facetplot) +
 p_growth_con_time
 ggsave(plot=p_growth_con_time, "output/growth_con_time.png", width = 6, height = 3)
 
+####### obs vs pred graph, with vertical lines
+p_growth_con_time_cat <- ggplot(data = rep_model_data_facetplot) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+  geom_point(aes(x = observed_growth, y = rate, color = Method), alpha = 0.5) +
+  geom_vline(xintercept = c(0.2, 0.5), linetype = "dotted") +  # Add vertical lines
+  scale_y_continuous(name = "Predicted Growth Rate (mm/day)", limits = c(-0.1, 1.4)) +
+  scale_x_continuous(name = "Observed Growth Rate (mm/day)", limits = c(-0.1, 1.4)) +
+  scale_fill_manual(label = c("BI", "MF", "F-L"), values = c("purple", "orange", "darkgreen")) +
+  scale_color_manual(label = c("BI", "MF", "F-L"), values = c("purple", "orange", "darkgreen")) +
+  theme_bw() +
+  theme(legend.position = "top", panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  facet_wrap(~Method)
+p_growth_con_time_cat
+ggsave(plot=p_growth_con_time_cat, "output/growth_con_time_cat.png", width = 6, height = 3)
+
+
 #Plot of the residuals of the growth rates for each time point
 p_growth_con_rep<- ggplot(data=rep_model_data%>%filter(Method%in%c("d_BIM","d_BIMF","d_Fraslee"))) +
   geom_hline(yintercept=0, linetype="dashed")+
@@ -696,9 +713,13 @@ ggsave("output/growth_error.png", p_growth_error,  width = 11, height = 5)
 #prep data
 rep_model_data_lmer <- rep_model_data %>%
   pivot_wider(names_from="Method", values_from="rate")
+#fix for 713
+rep_model_data_lmer <- rep_model_data %>%
+  pivot_wider(names_from = Method, values_from = rate)
 
 fraslee_lmer_m = lmer(observed_growth ~fraslee_growth +  (1 | Fish_ID),
              data =rep_model_data_lmer)
+##
 summary(fraslee_lmer_m)
 get_gof(fraslee_lmer_m)
 
@@ -1148,7 +1169,7 @@ ggsave(plot=p_comp_comb_wild, "output/comp_comb_wild.png", width = 15, height = 
 # assumption 1: no repeat measures = met
 
 # assumption 2: no significant outliers
-oto_flcomp_mean_wild %>% 
+outlier<-oto_flcomp_mean_wild %>% 
   group_by(Method, Growth_cat) %>%
   identify_outliers(Growth_rate_mean)
 # we have 6 outliers
@@ -1282,3 +1303,38 @@ emmeans_pairwise_table <-as.data.frame(mc_comb_all$contrasts)
 emmeans_estimates_table<-as.data.frame(mc_comb_all$emmeans)
 write.csv(emmeans_pairwise_table,"output/emmeans_pairwise_table.csv",row.names=F)
 write.csv(emmeans_estimates_table,"output/emmeans_estimates_table.csv",row.names=F)
+
+######new code######################################
+# assumption 1: no repeat measures = met
+
+# assumption 2: no significant outliers
+outlier<- oto_flcomp_mean_wild %>% 
+  group_by(Year, Growth_cat) %>%
+  identify_outliers(Growth_rate_mean)
+# no sig outliers
+
+#Assumption 3: Normality
+model_fornorm_wild  <- lm(Growth_rate_mean ~ Year, data = oto_flcomp_mean_wild)
+# Create a QQ plot of residuals
+ggqqplot(residuals(model_fornorm_wild))
+#Create a QQ plot of residuals by Method
+ggqqplot(oto_flcomp_mean_wild, "Growth_rate_mean", facet.by = "Method")
+# Compute Shapiro-Wilk test of normality
+shapiro_test(residuals(model_fornorm_wild))
+# Compute Shapiro-Wilk test of normality by Method and Growth_cat
+oto_flcomp_mean_wild %>% 
+  group_by(Method, Growth_cat) %>%
+  shapiro_test(Growth_rate_mean)
+#shapiro-wilk test =  we can assume normality
+
+#Assumption 4: Homogeneity of variances
+#residuals versus fits plot
+plot(model_fornorm_wild, 1)
+#Levene test
+oto_flcomp_mean_wild %>% 
+  levene_test(Growth_rate_mean ~ as.factor(Year))
+# not homogeneous
+
+# Differences in years
+flcomp_year<- welch_anova_test(Growth_rate_mean ~ Year, data = oto_flcomp_mean_wild)
+oto_flcomp_mean_wild %>%  games_howell_test(Growth_rate_mean ~ Year)
